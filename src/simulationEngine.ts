@@ -82,6 +82,10 @@ const VLM_SPACING = 101;
 const VLM_COUNT = 3;
 const OPERATOR_HOME_Y = 254;
 
+function getOperatorSpeed(station: Station) {
+  return station.bins.length < 3 ? OPERATOR_SPEED * 0.8 : OPERATOR_SPEED;
+}
+
 function createOperator(station: Station, vlmIndex = station.id): Operator {
   const fromX = station.startX + VLM_FIRST_CENTER_OFFSET + vlmIndex * VLM_SPACING;
   return {
@@ -364,7 +368,7 @@ export class SimulationEngine {
       operator.duration = Math.max(0.65, Math.hypot(
         operator.targetX - operator.fromX,
         operator.targetY - operator.fromY,
-      ) / OPERATOR_SPEED);
+      ) / getOperatorSpeed(station));
     } else {
       operator.phase = 'at-vlm';
       operator.elapsed = 0;
@@ -395,7 +399,7 @@ export class SimulationEngine {
       operator.duration = Math.max(0.65, Math.hypot(
         operator.targetX - operator.fromX,
         operator.targetY - operator.fromY,
-      ) / OPERATOR_SPEED);
+      ) / getOperatorSpeed(station));
     }
   }
 
