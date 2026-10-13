@@ -328,8 +328,10 @@ export class SimulationEngine {
 
     operator.elapsed += delta;
     const progress = Math.min(1, operator.elapsed / operator.duration);
-    operator.x = operator.fromX + (operator.targetX - operator.fromX) * progress;
-    operator.y = operator.fromY + (operator.targetY - operator.fromY) * progress;
+    if (operator.phase === 'to-bin' || operator.phase === 'to-vlm') {
+      operator.x = operator.fromX + (operator.targetX - operator.fromX) * progress;
+      operator.y = operator.fromY + (operator.targetY - operator.fromY) * progress;
+    }
 
     if (progress < 1) return;
     if (operator.phase === 'to-bin') {
