@@ -357,7 +357,7 @@ export class SimulationEngine {
       operator.elapsed = 0;
       operator.fromX = operator.x;
       operator.fromY = operator.y;
-      operator.vlmIndex = (operator.vlmIndex + 1) % VLM_COUNT;
+      operator.vlmIndex = (operator.vlmIndex + 1 + Math.floor(Math.random() * (VLM_COUNT - 1))) % VLM_COUNT;
       operator.homeX = station.startX + VLM_FIRST_CENTER_OFFSET + operator.vlmIndex * VLM_SPACING;
       operator.targetX = operator.homeX;
       operator.targetY = operator.homeY;
