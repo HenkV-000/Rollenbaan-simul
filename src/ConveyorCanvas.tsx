@@ -157,10 +157,8 @@ function drawStation(ctx: CanvasRenderingContext2D, station: Station, engine: Si
     const binAtSlot = station.bins
       .map((id) => engine.getStationBin(station, id))
       .find((bin) => bin?.slot === index);
-    const isActive = (
-      (station.operator.phase === 'to-bin' && station.operator.elapsed > 0)
-      || station.operator.phase === 'picking'
-    )
+    const isActive = station.operator.phase === 'to-bin'
+      && station.operator.elapsed > 0
       && station.operator.targetBinId === binAtSlot?.id
       && binAtSlot?.mode === 'station';
     const lightY = laneY - 29;

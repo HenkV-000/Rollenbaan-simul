@@ -22,7 +22,7 @@ export interface Bin {
 }
 
 export interface Operator {
-  phase: 'at-vlm' | 'to-bin' | 'picking' | 'to-vlm';
+  phase: 'at-vlm' | 'to-bin' | 'to-vlm';
   x: number;
   y: number;
   homeX: number;
@@ -70,8 +70,7 @@ const FEED_END = 208;
 const FEED_SPACING = 40;
 const MAIN_ENTRY_CLEARANCE = 42;
 const TRANSFER_SPEED = 95;
-const OPERATOR_SPEED = 150;
-const PICK_DURATION = 0.2;
+const OPERATOR_SPEED = 105;
 const VLM_FIRST_CENTER_OFFSET = 61.5;
 const VLM_SPACING = 101;
 const VLM_COUNT = 3;
@@ -335,10 +334,6 @@ export class SimulationEngine {
 
     if (progress < 1) return;
     if (operator.phase === 'to-bin') {
-      operator.phase = 'picking';
-      operator.elapsed = 0;
-      operator.duration = PICK_DURATION;
-    } else if (operator.phase === 'picking') {
       const bin = operator.targetBinId === null ? undefined : this.getStationBin(station, operator.targetBinId);
       if (bin) {
         bin.mode = 'returning';
@@ -372,31 +367,30 @@ export class SimulationEngine {
   }
 
   private assignNextPick() {
-    if (this.stations.some((station) => station.operator.phase !== 'at-vlm')) return;
+    for (const station of this.stations) {
+      const operator = station.operator;
+      if (operator.phase !== 'at-vlm') continue;
 
-    const candidates = this.stations.flatMap((station) =>
-      station.bins
+      const candidates = station.bins
         .map((id) => this.getStationBin(station, id))
         .filter((bin): bin is Bin =>
-          bin !== undefined && bin.mode === 'station' && bin.serviceTime > 0.1,
-        )
-        .map((bin) => ({ station, bin })),
-    );
-    if (candidates.length === 0) return;
+          bin !== undefined && bin.mode === 'station' && bin.serviceTime > 0.75,
+        );
+      if (candidates.length === 0) continue;
 
-    const { station, bin } = candidates[Math.floor(Math.random() * candidates.length)];
-    const operator = station.operator;
-    operator.phase = 'to-bin';
-    operator.targetBinId = bin.id;
-    operator.fromX = operator.x;
-    operator.fromY = operator.y;
-    operator.targetX = station.startX + 30 + bin.slot * 31;
-    operator.targetY = station.laneY - 58;
-    operator.elapsed = 0;
-    operator.duration = Math.max(0.65, Math.hypot(
-      operator.targetX - operator.fromX,
-      operator.targetY - operator.fromY,
-    ) / OPERATOR_SPEED);
+      const bin = candidates[Math.floor(Math.random() * candidates.length)];
+      operator.phase = 'to-bin';
+      operator.targetBinId = bin.id;
+      operator.fromX = operator.x;
+      operator.fromY = operator.y;
+      operator.targetX = station.startX + 30 + bin.slot * 31;
+      operator.targetY = station.laneY - 58;
+      operator.elapsed = 0;
+      operator.duration = Math.max(0.65, Math.hypot(
+        operator.targetX - operator.fromX,
+        operator.targetY - operator.fromY,
+      ) / OPERATOR_SPEED);
+    }
   }
 
   private findFreeSlot(station: Station) {
