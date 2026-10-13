@@ -143,7 +143,7 @@ function drawStation(ctx: CanvasRenderingContext2D, station: Station, engine: Si
   ctx.fillText(`${String(load).padStart(2, '0')} / 10 BAKKEN`, cardX + cardW - 14, 54);
   ctx.textAlign = 'left';
 
-  const vlmY = 112;
+  const vlmY = 150;
   for (let index = 0; index < 3; index += 1) {
     const x = startX + 22 + index * 101;
     drawVlm(ctx, x, vlmY, index + 1, station.operator.vlmIndex === index && station.operator.phase === 'at-vlm');

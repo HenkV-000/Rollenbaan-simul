@@ -80,7 +80,7 @@ const OPERATOR_SPEED = 105;
 const VLM_FIRST_CENTER_OFFSET = 61.5;
 const VLM_SPACING = 101;
 const VLM_COUNT = 3;
-const OPERATOR_HOME_Y = 216;
+const OPERATOR_HOME_Y = 254;
 
 function createOperator(station: Station, vlmIndex = station.id): Operator {
   const fromX = station.startX + VLM_FIRST_CENTER_OFFSET + vlmIndex * VLM_SPACING;
