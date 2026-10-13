@@ -1,4 +1,4 @@
-export type BinMode = 'feed' | 'main' | 'station' | 'returning' | 'output';
+export type BinMode = 'feed' | 'main' | 'entering' | 'station' | 'returning' | 'output';
 export type StationId = 0 | 1;
 
 export interface Bin {
@@ -7,10 +7,13 @@ export interface Bin {
   feedPosition: number;
   mode: BinMode;
   targetStation: StationId;
+  returnStation: StationId;
   processed: boolean;
   slot: number;
   slotTransitionFrom: number;
   slotProgress: number;
+  entryPhase: 'vertical' | 'horizontal';
+  entryProgress: number;
   serviceTime: number;
   returnProgress: number;
   outputProgress: number;
@@ -21,8 +24,13 @@ export interface Bin {
 export interface Operator {
   phase: 'at-vlm' | 'to-bin' | 'picking' | 'to-vlm';
   x: number;
+  y: number;
+  homeX: number;
+  homeY: number;
   fromX: number;
+  fromY: number;
   targetX: number;
+  targetY: number;
   elapsed: number;
   duration: number;
   targetBinId: number | null;
@@ -63,15 +71,24 @@ const FEED_SPACING = 40;
 const MAIN_ENTRY_CLEARANCE = 42;
 const TRANSFER_SPEED = 95;
 const OPERATOR_SPEED = 150;
-const PICK_DURATION = 0.6;
+const PICK_DURATION = 0.2;
+const VLM_FIRST_CENTER_OFFSET = 61.5;
+const VLM_SPACING = 101;
+const VLM_COUNT = 3;
+const OPERATOR_HOME_Y = 216;
 
 function createOperator(station: Station, vlmIndex = station.id): Operator {
-  const fromX = station.startX + 75 + vlmIndex * 86;
+  const fromX = station.startX + VLM_FIRST_CENTER_OFFSET + vlmIndex * VLM_SPACING;
   return {
     phase: 'at-vlm',
     x: fromX,
+    y: OPERATOR_HOME_Y,
+    homeX: fromX,
+    homeY: OPERATOR_HOME_Y,
     fromX,
+    fromY: OPERATOR_HOME_Y,
     targetX: fromX,
+    targetY: OPERATOR_HOME_Y,
     elapsed: 0,
     duration: 0,
     targetBinId: null,
@@ -105,8 +122,16 @@ export class SimulationEngine {
         exitDistance: endX - 8 - TRACK.startX,
         bins: [],
         operator: {
-          phase: 'at-vlm', x: startX + 75 + id * 86, fromX: startX + 75 + id * 86,
-          targetX: startX + 75 + id * 86, elapsed: 0, duration: 0, targetBinId: null, vlmIndex: id,
+          phase: 'at-vlm',
+          x: startX + VLM_FIRST_CENTER_OFFSET + id * VLM_SPACING,
+          y: OPERATOR_HOME_Y,
+          homeX: startX + VLM_FIRST_CENTER_OFFSET + id * VLM_SPACING,
+          homeY: OPERATOR_HOME_Y,
+          fromX: startX + VLM_FIRST_CENTER_OFFSET + id * VLM_SPACING,
+          fromY: OPERATOR_HOME_Y,
+          targetX: startX + VLM_FIRST_CENTER_OFFSET + id * VLM_SPACING,
+          targetY: OPERATOR_HOME_Y,
+          elapsed: 0, duration: 0, targetBinId: null, vlmIndex: id,
         },
         completed: 0,
       };
@@ -160,6 +185,7 @@ export class SimulationEngine {
     this.stepFeedBins(delta);
     for (const bin of this.bins) {
       if (bin.mode === 'main') this.stepMainBin(bin, delta);
+      else if (bin.mode === 'entering') this.stepEnteringBin(bin, delta);
       else if (bin.mode === 'station') {
         bin.serviceTime += delta;
         bin.slotProgress = Math.min(1, bin.slotProgress + delta / 0.25);
@@ -168,6 +194,7 @@ export class SimulationEngine {
       else if (bin.mode === 'output') this.stepOutputBin(bin, delta);
     }
 
+    this.assignNextPick();
     for (const station of this.stations) this.stepOperator(station, delta);
     this.bins = this.bins.filter((bin) => bin.mode !== 'output' || bin.outputProgress < 1);
   }
@@ -183,13 +210,16 @@ export class SimulationEngine {
   }
 
   getStationBin(station: Station, binId: number) {
-    return this.bins.find((bin) => bin.id === binId && bin.mode === 'station' && station.bins.includes(bin.id));
+    return this.bins.find((bin) =>
+      bin.id === binId && (bin.mode === 'station' || bin.mode === 'entering') && station.bins.includes(bin.id),
+    );
   }
 
   private newBin(distance: number, targetStation: StationId, mode: BinMode = 'main', feedPosition = FEED_START): Bin {
     return {
-      id: this.nextBinId++, distance, feedPosition, mode, targetStation, processed: false,
+      id: this.nextBinId++, distance, feedPosition, mode, targetStation, returnStation: targetStation, processed: false,
       slot: -1, slotTransitionFrom: -1, slotProgress: 1,
+      entryPhase: 'vertical', entryProgress: 0,
       serviceTime: 0, returnProgress: 0, outputProgress: 0,
       previousDistance: distance, finishedAt: 0,
     };
@@ -240,8 +270,12 @@ export class SimulationEngine {
     if (!bin.processed && passedEntry && station.bins.length < 10) {
       const slot = this.findFreeSlot(station);
       if (slot !== -1) {
-        bin.mode = 'station';
+        bin.mode = 'entering';
+        bin.distance = station.entryDistance;
+        bin.previousDistance = station.entryDistance;
         bin.slot = slot;
+        bin.entryPhase = 'vertical';
+        bin.entryProgress = 0;
         bin.serviceTime = 0;
         station.bins.push(bin.id);
       }
@@ -258,10 +292,26 @@ export class SimulationEngine {
     }
   }
 
+  private stepEnteringBin(bin: Bin, delta: number) {
+    if (bin.entryPhase === 'vertical') {
+      bin.entryProgress = Math.min(1, bin.entryProgress + TRANSFER_SPEED * delta / (TRACK.topY - this.stations[bin.targetStation].laneY));
+      if (bin.entryProgress >= 1) {
+        bin.entryPhase = 'horizontal';
+        bin.entryProgress = 0;
+      }
+      return;
+    }
+
+    const station = this.stations[bin.targetStation];
+    const horizontalDistance = station.startX + 30 + bin.slot * 31 - (station.startX + 24);
+    bin.entryProgress = Math.min(1, bin.entryProgress + TRANSFER_SPEED * delta / Math.max(6, horizontalDistance));
+    if (bin.entryProgress >= 1) bin.mode = 'station';
+  }
+
   private stepReturningBin(bin: Bin, delta: number) {
     bin.returnProgress = Math.min(1, bin.returnProgress + TRANSFER_SPEED * delta / 125);
     if (bin.returnProgress >= 1) {
-      bin.distance = this.stations[bin.targetStation].exitDistance;
+      bin.distance = this.stations[bin.returnStation].exitDistance;
       bin.previousDistance = bin.distance;
       bin.mode = 'main';
     }
@@ -274,51 +324,77 @@ export class SimulationEngine {
 
   private stepOperator(station: Station, delta: number) {
     const operator = station.operator;
-    if (operator.phase === 'at-vlm') {
-      const bin = station.bins
-        .map((id) => this.getStationBin(station, id))
-        .find((candidate) => candidate && candidate.serviceTime > 0.25);
-      if (!bin) return;
-      operator.phase = 'to-bin';
-      operator.targetBinId = bin.id;
-      operator.fromX = operator.x;
-      operator.targetX = station.startX + 30 + bin.slot * 31;
-      operator.elapsed = 0;
-      operator.duration = Math.max(0.65, Math.abs(operator.targetX - operator.fromX) / OPERATOR_SPEED);
-      return;
-    }
+    if (operator.phase === 'at-vlm') return;
 
     operator.elapsed += delta;
     const progress = Math.min(1, operator.elapsed / operator.duration);
     operator.x = operator.fromX + (operator.targetX - operator.fromX) * progress;
+    operator.y = operator.fromY + (operator.targetY - operator.fromY) * progress;
 
     if (progress < 1) return;
     if (operator.phase === 'to-bin') {
       operator.phase = 'picking';
       operator.elapsed = 0;
       operator.duration = PICK_DURATION;
+    } else if (operator.phase === 'picking') {
       const bin = operator.targetBinId === null ? undefined : this.getStationBin(station, operator.targetBinId);
       if (bin) {
         bin.mode = 'returning';
-        bin.processed = true;
+        bin.returnStation = station.id;
+        const continuesAtStationTwo = station.id === 0 && Math.random() < 0.35;
+        bin.processed = !continuesAtStationTwo;
+        if (continuesAtStationTwo) bin.targetStation = 1;
         bin.returnProgress = 0;
         station.bins = station.bins.filter((id) => id !== bin.id);
         this.compactStationBins(station);
         this.processedOrders += 1;
         station.completed += 1;
       }
-    } else if (operator.phase === 'picking') {
       operator.phase = 'to-vlm';
       operator.elapsed = 0;
-      operator.vlmIndex = (operator.vlmIndex + 1) % 3;
       operator.fromX = operator.x;
-      operator.targetX = station.startX + 75 + operator.vlmIndex * 86;
-      operator.duration = Math.max(0.55, Math.abs(operator.targetX - operator.fromX) / OPERATOR_SPEED);
+      operator.fromY = operator.y;
+      operator.vlmIndex = (operator.vlmIndex + 1) % VLM_COUNT;
+      operator.homeX = station.startX + VLM_FIRST_CENTER_OFFSET + operator.vlmIndex * VLM_SPACING;
+      operator.targetX = operator.homeX;
+      operator.targetY = operator.homeY;
+      operator.duration = Math.max(0.65, Math.hypot(
+        operator.targetX - operator.fromX,
+        operator.targetY - operator.fromY,
+      ) / OPERATOR_SPEED);
     } else {
       operator.phase = 'at-vlm';
       operator.elapsed = 0;
       operator.targetBinId = null;
     }
+  }
+
+  private assignNextPick() {
+    if (this.stations.some((station) => station.operator.phase !== 'at-vlm')) return;
+
+    const candidates = this.stations.flatMap((station) =>
+      station.bins
+        .map((id) => this.getStationBin(station, id))
+        .filter((bin): bin is Bin =>
+          bin !== undefined && bin.mode === 'station' && bin.serviceTime > 0.1,
+        )
+        .map((bin) => ({ station, bin })),
+    );
+    if (candidates.length === 0) return;
+
+    const { station, bin } = candidates[Math.floor(Math.random() * candidates.length)];
+    const operator = station.operator;
+    operator.phase = 'to-bin';
+    operator.targetBinId = bin.id;
+    operator.fromX = operator.x;
+    operator.fromY = operator.y;
+    operator.targetX = station.startX + 30 + bin.slot * 31;
+    operator.targetY = station.laneY - 58;
+    operator.elapsed = 0;
+    operator.duration = Math.max(0.65, Math.hypot(
+      operator.targetX - operator.fromX,
+      operator.targetY - operator.fromY,
+    ) / OPERATOR_SPEED);
   }
 
   private findFreeSlot(station: Station) {
@@ -338,7 +414,9 @@ export class SimulationEngine {
       .sort((first, second) => second.slot - first.slot)
       .forEach((bin, index) => {
         const nextSlot = 9 - index;
-        if (bin.slot !== nextSlot) {
+        if (bin.mode === 'entering') {
+          bin.slot = nextSlot;
+        } else if (bin.slot !== nextSlot) {
           bin.slotTransitionFrom = bin.slot;
           bin.slotProgress = 0;
           bin.slot = nextSlot;

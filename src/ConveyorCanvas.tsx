@@ -55,26 +55,37 @@ function renderScene(ctx: CanvasRenderingContext2D, engine: SimulationEngine) {
   drawTransferPaths(ctx, engine.stations);
 
   for (const bin of engine.bins) {
-    if (bin.mode === 'feed') drawBin(ctx, bin.feedPosition, 448, bin, false);
-    if (bin.mode === 'main') drawBin(ctx, getMainPosition(bin.distance).x, getMainPosition(bin.distance).y, bin, false);
+    if (bin.mode === 'feed') drawBin(ctx, bin.feedPosition, 448, bin);
+    if (bin.mode === 'main') drawBin(ctx, getMainPosition(bin.distance).x, getMainPosition(bin.distance).y, bin);
+    if (bin.mode === 'entering') {
+      const station = engine.stations[bin.targetStation];
+      const entryX = station.startX + 24;
+      const targetX = station.startX + 30 + bin.slot * 31;
+      const progress = bin.entryProgress;
+      const x = bin.entryPhase === 'vertical' ? entryX : entryX + (targetX - entryX) * progress;
+      const y = bin.entryPhase === 'vertical'
+        ? getTrackLayout().topY + (station.laneY - getTrackLayout().topY) * progress
+        : station.laneY;
+      drawBin(ctx, x, y, bin);
+    }
     if (bin.mode === 'station') {
       const station = engine.stations[bin.targetStation];
       const slot = bin.slotTransitionFrom + (bin.slot - bin.slotTransitionFrom) * bin.slotProgress;
       const x = station.startX + 30 + slot * 31;
-      drawBin(ctx, x, station.laneY, bin, true);
+      drawBin(ctx, x, station.laneY, bin);
     }
     if (bin.mode === 'returning') {
-      const station = engine.stations[bin.targetStation];
+      const station = engine.stations[bin.returnStation];
       const fromX = station.startX + 30 + bin.slot * 31;
       const x = fromX + (station.endX - fromX) * bin.returnProgress;
       const y = station.laneY + (track.topY - station.laneY) * bin.returnProgress;
-      drawBin(ctx, x, y, bin, false);
+      drawBin(ctx, x, y, bin);
     }
     if (bin.mode === 'output') {
       const point = getMainPosition(bin.distance);
       const x = point.x + (point.x - 795) * bin.outputProgress;
       const y = track.bottomY + 46 * bin.outputProgress;
-      drawBin(ctx, x, y, bin, false);
+      drawBin(ctx, x, y, bin);
     }
   }
 
@@ -122,7 +133,7 @@ function drawStation(ctx: CanvasRenderingContext2D, station: Station, engine: Si
   ctx.fillText(`${String(load).padStart(2, '0')} / 10 BAKKEN`, cardX + cardW - 14, 54);
   ctx.textAlign = 'left';
 
-  const vlmY = 74;
+  const vlmY = 112;
   for (let index = 0; index < 3; index += 1) {
     const x = startX + 22 + index * 101;
     drawVlm(ctx, x, vlmY, index + 1, station.operator.vlmIndex === index && station.operator.phase === 'at-vlm');
@@ -143,10 +154,15 @@ function drawStation(ctx: CanvasRenderingContext2D, station: Station, engine: Si
   drawLane(ctx, startX - 18, laneY, endX - startX + 36, 34, 10);
   for (let index = 0; index < 10; index += 1) {
     const x = startX + 30 + index * 31;
-    const activeBin = station.bins
+    const binAtSlot = station.bins
       .map((id) => engine.getStationBin(station, id))
       .find((bin) => bin?.slot === index);
-    const isActive = Boolean(activeBin);
+    const isActive = (
+      (station.operator.phase === 'to-bin' && station.operator.elapsed > 0)
+      || station.operator.phase === 'picking'
+    )
+      && station.operator.targetBinId === binAtSlot?.id
+      && binAtSlot?.mode === 'station';
     const lightY = laneY - 29;
     ctx.beginPath();
     ctx.arc(x, lightY, 5.1, 0, Math.PI * 2);
@@ -176,23 +192,23 @@ function drawStation(ctx: CanvasRenderingContext2D, station: Station, engine: Si
 
 function drawVlm(ctx: CanvasRenderingContext2D, x: number, y: number, number: number, active: boolean) {
   ctx.save();
-  roundRect(ctx, x, y, 79, 111, 4);
+  roundRect(ctx, x, y, 79, 88, 4);
   ctx.fillStyle = active ? '#e6eee8' : '#e9ede8';
   ctx.fill();
   ctx.strokeStyle = active ? '#9dbbad' : '#d2d9d1';
   ctx.lineWidth = 1;
   ctx.stroke();
-  roundRect(ctx, x + 8, y + 10, 63, 81, 2);
+  roundRect(ctx, x + 8, y + 9, 63, 63, 2);
   ctx.fillStyle = active ? '#cbded2' : '#d9dfd8';
   ctx.fill();
   ctx.strokeStyle = '#c1ccc2';
   ctx.stroke();
   ctx.fillStyle = '#84918a';
   ctx.font = '500 7px "DM Mono", monospace';
-  ctx.fillText(`MODULA 0${number}`, x + 7, y + 104);
+  ctx.fillText(`MODULA 0${number}`, x + 7, y + 82);
   ctx.fillStyle = '#7e8b84';
   for (let shelf = 0; shelf < 5; shelf += 1) {
-    const shelfY = y + 21 + shelf * 13;
+    const shelfY = y + 19 + shelf * 10;
     ctx.fillRect(x + 15, shelfY, 49, 2);
     ctx.fillStyle = ['#c69363', '#92b4a1', '#d7a257', '#8ca7a0', '#c58d67'][shelf];
     ctx.fillRect(x + 20 + (shelf % 2) * 9, shelfY - 5, 10, 5);
@@ -329,7 +345,7 @@ function drawTransferPaths(ctx: CanvasRenderingContext2D, stations: [Station, St
   ctx.restore();
 }
 
-function drawBin(ctx: CanvasRenderingContext2D, x: number, y: number, bin: Bin, lit: boolean) {
+function drawBin(ctx: CanvasRenderingContext2D, x: number, y: number, bin: Bin) {
   const color = bin.processed ? COLORS.orange : bin.targetStation === 0 ? '#d2a052' : '#72a28b';
   ctx.save();
   ctx.shadowColor = '#17282327';
@@ -345,33 +361,28 @@ function drawBin(ctx: CanvasRenderingContext2D, x: number, y: number, bin: Bin, 
   ctx.fillStyle = '#fff9';
   ctx.fillRect(x - 7, y - 4, 14, 2);
   ctx.fillRect(x - 5, y + 1, 10, 2);
-  if (lit) {
-    ctx.beginPath();
-    ctx.arc(x, y - 15, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff2a5';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y - 15, 7, 0, Math.PI * 2);
-    ctx.strokeStyle = '#f1bb4a75';
-    ctx.stroke();
-  }
   ctx.restore();
 }
 
 function drawOperator(ctx: CanvasRenderingContext2D, station: Station) {
   const operator = station.operator;
-  const y = 283;
   if (operator.phase === 'to-bin' || operator.phase === 'to-vlm') {
     ctx.save();
     ctx.strokeStyle = '#75958877';
     ctx.setLineDash([2, 4]);
     ctx.beginPath();
-    ctx.moveTo(operator.x, y + 10);
-    ctx.lineTo(operator.targetX, y + 10);
+    ctx.moveTo(operator.x, operator.y + 10);
+    ctx.lineTo(operator.targetX, operator.targetY + 10);
     ctx.stroke();
     ctx.restore();
   }
-  drawOperatorFigure(ctx, operator.x, y, station.id, operator.phase !== 'at-vlm');
+  drawOperatorFigure(
+    ctx,
+    operator.x,
+    operator.y,
+    station.id,
+    operator.phase === 'to-bin' || operator.phase === 'to-vlm',
+  );
 }
 
 function drawOperatorFigure(ctx: CanvasRenderingContext2D, x: number, y: number, stationId: number, walking: boolean) {

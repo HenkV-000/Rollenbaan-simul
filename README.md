@@ -24,7 +24,7 @@ npm run preview
 - **Snelheid** om de simulatie tussen 0,5x en 3x in te stellen.
 - **Reset** om de simulatie terug te zetten naar de beginsituatie.
 
-Meerdere lege bakken staan klaar in de invoerbuffer. De voorste bak schuift de rollenbaan op; de buffer wordt vanaf de invoerzijde aangevuld. Bakken stromen per werkstation de put-to-light-baan op, met maximaal één bak per positie. Als een bak wordt opgehaald, schuiven de overige bakken door. De operator loopt van een Modula-unit naar een actieve put-to-light-positie. Na het picken keert de bak via de transfer terug naar de hoofdlus en wordt hij bij de afvoer uitgesluisd. Het dashboard toont de actuele bakken, orders, stationsbelasting en simulatietijd.
+Meerdere lege bakken staan klaar in de invoerbuffer. De voorste bak schuift de rollenbaan op; de buffer wordt vanaf de invoerzijde aangevuld. Bakken bewegen glijdend tussen hoofdlus en parallelle put-to-light-baan: eerst omhoog bij de ingang en daarna horizontaal naar de eerste vrije positie. Per keer brandt één put-to-light-lamp en loopt de operator vanaf zijn vaste Modula naar de gekozen bak en terug. Als een bak wordt opgehaald, schuiven de overige bakken door. Een deel van de bakken uit werkstation 1 gaat na de eerste pick ook langs werkstation 2 voordat ze naar de afvoer gaan. Het dashboard toont de actuele bakken, orders, stationsbelasting en simulatietijd.
 
 ## Bestandsstructuur
 
