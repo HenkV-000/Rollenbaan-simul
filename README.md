@@ -18,6 +18,17 @@ npm run build
 npm run preview
 ```
 
+## Publiceren op GitHub Pages
+
+De GitHub Actions-workflow bouwt en publiceert de website automatisch bij elke push naar `main`. Eenmalig instellen:
+
+1. Push de repository naar GitHub.
+2. Open **Settings → Pages** in de GitHub-repository.
+3. Kies bij **Build and deployment → Source** voor **GitHub Actions**.
+4. Open **Actions** en wacht tot **Deploy to GitHub Pages** is geslaagd.
+
+De website staat daarna op `https://henkv-000.github.io/Rollenbaan-simul/`. Bezoekers hebben alleen een browser nodig. Elke volgende push naar `main` publiceert automatisch de nieuwe versie.
+
 ## Bediening
 
 - **Start simulatie / Pauzeren** om de goederenstroom te starten of stil te zetten.
