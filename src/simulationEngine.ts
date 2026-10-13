@@ -63,6 +63,12 @@ const ARC_LENGTH = Math.PI * TRACK.radius;
 const BOTTOM_START = TOP_LENGTH + ARC_LENGTH;
 export const LOOP_LENGTH = TOP_LENGTH * 2 + ARC_LENGTH * 2;
 const OUTPUT_DISTANCE = BOTTOM_START + TRACK.endX - 795;
+export const OUTPUT_LANE_START_X = 795;
+export const OUTPUT_LANE_END_X = 1130;
+export const OUTPUT_LANE_Y = 706;
+export const OUTPUT_DROP_LENGTH = OUTPUT_LANE_Y - TRACK.bottomY;
+export const OUTPUT_PATH_LENGTH = OUTPUT_DROP_LENGTH + OUTPUT_LANE_END_X - OUTPUT_LANE_START_X;
+const OUTPUT_SPEED = 55;
 const MAX_BINS = 22;
 const SPAWN_INTERVAL = 0.8;
 const FEED_START = 48;
@@ -317,7 +323,7 @@ export class SimulationEngine {
   }
 
   private stepOutputBin(bin: Bin, delta: number) {
-    bin.outputProgress = Math.min(1, bin.outputProgress + TRANSFER_SPEED * delta / 150);
+    bin.outputProgress = Math.min(1, bin.outputProgress + OUTPUT_SPEED * delta / OUTPUT_PATH_LENGTH);
     if (bin.outputProgress >= 1) this.outputBins += 1;
   }
 

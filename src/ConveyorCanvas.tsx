@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { Bin, getMainPosition, getTrackLayout, SimulationEngine, Station } from './simulationEngine';
+import {
+  Bin, getMainPosition, getTrackLayout, OUTPUT_DROP_LENGTH, OUTPUT_LANE_END_X,
+  OUTPUT_LANE_START_X, OUTPUT_LANE_Y, SimulationEngine, Station,
+} from './simulationEngine';
 
 const COLORS = {
   ink: '#19312d', muted: '#77827c', track: '#31423e', trackEdge: '#60706a',
@@ -82,9 +85,16 @@ function renderScene(ctx: CanvasRenderingContext2D, engine: SimulationEngine) {
       drawBin(ctx, x, y, bin);
     }
     if (bin.mode === 'output') {
-      const point = getMainPosition(bin.distance);
-      const x = point.x + (point.x - 795) * bin.outputProgress;
-      const y = track.bottomY + 46 * bin.outputProgress;
+      const outputDistance = bin.outputProgress * (
+        OUTPUT_DROP_LENGTH + OUTPUT_LANE_END_X - OUTPUT_LANE_START_X
+      );
+      const isOnDrop = outputDistance < OUTPUT_DROP_LENGTH;
+      const x = isOnDrop
+        ? OUTPUT_LANE_START_X
+        : OUTPUT_LANE_START_X + outputDistance - OUTPUT_DROP_LENGTH;
+      const y = isOnDrop
+        ? track.bottomY + outputDistance
+        : OUTPUT_LANE_Y;
       drawBin(ctx, x, y, bin);
     }
   }
@@ -311,19 +321,26 @@ function drawFeed(ctx: CanvasRenderingContext2D) {
 }
 
 function drawOutput(ctx: CanvasRenderingContext2D) {
-  drawLane(ctx, 785, 706, 250, 37, 9);
+  drawLane(
+    ctx,
+    OUTPUT_LANE_START_X - 10,
+    OUTPUT_LANE_Y,
+    OUTPUT_LANE_END_X - OUTPUT_LANE_START_X + 20,
+    37,
+    13,
+  );
   ctx.save();
   ctx.strokeStyle = '#e5a17f';
   ctx.lineWidth = 7;
   ctx.beginPath();
-  ctx.moveTo(795, 660);
-  ctx.lineTo(795, 706);
+  ctx.moveTo(OUTPUT_LANE_START_X, 660);
+  ctx.lineTo(OUTPUT_LANE_START_X, OUTPUT_LANE_Y);
   ctx.stroke();
   ctx.restore();
-  drawArrow(ctx, 922, 706, 1);
+  drawArrow(ctx, 970, OUTPUT_LANE_Y, 1);
   ctx.fillStyle = COLORS.orange;
   ctx.font = '500 8px "DM Mono", monospace';
-  ctx.fillText('AFVOER / GEREED', 1050, 710);
+  ctx.fillText('AFVOER / GEREED', OUTPUT_LANE_END_X + 18, 710);
 }
 
 function drawTransferPaths(ctx: CanvasRenderingContext2D, stations: [Station, Station]) {
