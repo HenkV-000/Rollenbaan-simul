@@ -55,10 +55,12 @@ function renderScene(ctx: CanvasRenderingContext2D, engine: SimulationEngine) {
   drawTransferPaths(ctx, engine.stations);
 
   for (const bin of engine.bins) {
+    if (bin.mode === 'feed') drawBin(ctx, bin.feedPosition, 448, bin, false);
     if (bin.mode === 'main') drawBin(ctx, getMainPosition(bin.distance).x, getMainPosition(bin.distance).y, bin, false);
     if (bin.mode === 'station') {
       const station = engine.stations[bin.targetStation];
-      const x = station.startX + 30 + bin.slot * 31;
+      const slot = bin.slotTransitionFrom + (bin.slot - bin.slotTransitionFrom) * bin.slotProgress;
+      const x = station.startX + 30 + slot * 31;
       drawBin(ctx, x, station.laneY, bin, true);
     }
     if (bin.mode === 'returning') {
@@ -282,13 +284,13 @@ function drawMainLoop(ctx: CanvasRenderingContext2D, engine: SimulationEngine) {
 }
 
 function drawFeed(ctx: CanvasRenderingContext2D) {
-  const x = 70;
+  const x = 32;
   const y = 448;
-  drawLane(ctx, x, y, 163, 37, 6);
+  drawLane(ctx, x, y, 201, 37, 7);
   drawArrow(ctx, 195, y, 1);
   ctx.fillStyle = COLORS.teal;
   ctx.font = '500 8px "DM Mono", monospace';
-  ctx.fillText('INVOER / LEGE BAKKEN', x + 2, y - 31);
+  ctx.fillText('WACHTRIJ / LEGE BAKKEN', x + 2, y - 31);
   ctx.fillStyle = '#829087';
   ctx.font = '400 8px "DM Sans", sans-serif';
   ctx.fillText('aanvoer', x + 5, y + 33);

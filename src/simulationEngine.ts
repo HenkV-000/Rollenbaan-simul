@@ -1,13 +1,16 @@
-export type BinMode = 'main' | 'station' | 'returning' | 'output';
+export type BinMode = 'feed' | 'main' | 'station' | 'returning' | 'output';
 export type StationId = 0 | 1;
 
 export interface Bin {
   id: number;
   distance: number;
+  feedPosition: number;
   mode: BinMode;
   targetStation: StationId;
   processed: boolean;
   slot: number;
+  slotTransitionFrom: number;
+  slotProgress: number;
   serviceTime: number;
   returnProgress: number;
   outputProgress: number;
@@ -53,7 +56,11 @@ const BOTTOM_START = TOP_LENGTH + ARC_LENGTH;
 export const LOOP_LENGTH = TOP_LENGTH * 2 + ARC_LENGTH * 2;
 const OUTPUT_DISTANCE = BOTTOM_START + TRACK.endX - 795;
 const MAX_BINS = 22;
-const SPAWN_INTERVAL = 2.15;
+const SPAWN_INTERVAL = 0.8;
+const FEED_START = 48;
+const FEED_END = 208;
+const FEED_SPACING = 40;
+const MAIN_ENTRY_CLEARANCE = 42;
 const TRANSFER_SPEED = 95;
 const OPERATOR_SPEED = 150;
 const PICK_DURATION = 0.6;
@@ -122,10 +129,10 @@ export class SimulationEngine {
       station.completed = 0;
       station.operator = createOperator(station, station.id);
     }
-    for (let index = 0; index < 8; index += 1) {
-      const distance = (index / 8) * LOOP_LENGTH;
-      this.bins.push(this.newBin(distance, index % 2 as StationId));
+    for (let index = 0; index < 5; index += 1) {
+      this.bins.push(this.newBin(0, index % 2 as StationId, 'feed', FEED_START + index * FEED_SPACING));
     }
+    this.stationTarget = 1;
     this.running = run;
   }
 
@@ -143,16 +150,20 @@ export class SimulationEngine {
     if (delta <= 0) return;
     this.elapsed += delta;
     this.spawnClock += delta;
-    while (this.spawnClock >= this.nextSpawnAt && this.bins.length < MAX_BINS) {
+    while (this.spawnClock >= this.nextSpawnAt && this.bins.length < MAX_BINS && this.canAddFeedBin()) {
       this.spawnClock -= this.nextSpawnAt;
       this.nextSpawnAt = SPAWN_INTERVAL * (0.82 + Math.random() * 0.36);
-      this.bins.push(this.newBin(0, this.stationTarget));
+      this.bins.push(this.newBin(0, this.stationTarget, 'feed', FEED_START));
       this.stationTarget = (1 - this.stationTarget) as StationId;
     }
 
+    this.stepFeedBins(delta);
     for (const bin of this.bins) {
       if (bin.mode === 'main') this.stepMainBin(bin, delta);
-      else if (bin.mode === 'station') bin.serviceTime += delta;
+      else if (bin.mode === 'station') {
+        bin.serviceTime += delta;
+        bin.slotProgress = Math.min(1, bin.slotProgress + delta / 0.25);
+      }
       else if (bin.mode === 'returning') this.stepReturningBin(bin, delta);
       else if (bin.mode === 'output') this.stepOutputBin(bin, delta);
     }
@@ -175,12 +186,45 @@ export class SimulationEngine {
     return this.bins.find((bin) => bin.id === binId && bin.mode === 'station' && station.bins.includes(bin.id));
   }
 
-  private newBin(distance: number, targetStation: StationId): Bin {
+  private newBin(distance: number, targetStation: StationId, mode: BinMode = 'main', feedPosition = FEED_START): Bin {
     return {
-      id: this.nextBinId++, distance, mode: 'main', targetStation, processed: false,
-      slot: -1, serviceTime: 0, returnProgress: 0, outputProgress: 0,
+      id: this.nextBinId++, distance, feedPosition, mode, targetStation, processed: false,
+      slot: -1, slotTransitionFrom: -1, slotProgress: 1,
+      serviceTime: 0, returnProgress: 0, outputProgress: 0,
       previousDistance: distance, finishedAt: 0,
     };
+  }
+
+  private canAddFeedBin() {
+    const tailPosition = this.bins
+      .filter((bin) => bin.mode === 'feed')
+      .reduce((position, bin) => Math.min(position, bin.feedPosition), Infinity);
+    return tailPosition === Infinity || tailPosition - FEED_START >= FEED_SPACING;
+  }
+
+  private stepFeedBins(delta: number) {
+    const feedBins = this.bins
+      .filter((bin) => bin.mode === 'feed')
+      .sort((first, second) => second.feedPosition - first.feedPosition);
+    let previousPosition = Infinity;
+    for (const bin of feedBins) {
+      const limit = Math.min(FEED_END, previousPosition - FEED_SPACING);
+      bin.feedPosition = Math.min(bin.feedPosition + TRANSFER_SPEED * delta, limit);
+      previousPosition = bin.feedPosition;
+      if (bin.feedPosition >= FEED_END && this.isMainEntryClear()) {
+        bin.mode = 'main';
+        bin.distance = 0;
+        bin.previousDistance = 0;
+        bin.feedPosition = 0;
+      }
+    }
+  }
+
+  private isMainEntryClear() {
+    return !this.bins.some((bin) =>
+      bin.mode === 'main'
+      && (bin.distance < MAIN_ENTRY_CLEARANCE || bin.distance > LOOP_LENGTH - MAIN_ENTRY_CLEARANCE),
+    );
   }
 
   private stepMainBin(bin: Bin, delta: number) {
@@ -259,6 +303,7 @@ export class SimulationEngine {
         bin.processed = true;
         bin.returnProgress = 0;
         station.bins = station.bins.filter((id) => id !== bin.id);
+        this.compactStationBins(station);
         this.processedOrders += 1;
         station.completed += 1;
       }
@@ -282,8 +327,23 @@ export class SimulationEngine {
         .map((id) => this.bins.find((bin) => bin.id === id)?.slot)
         .filter((slot): slot is number => slot !== undefined),
     );
-    for (let slot = 0; slot < 10; slot += 1) if (!occupied.has(slot)) return slot;
+    for (let slot = 9; slot >= 0; slot -= 1) if (!occupied.has(slot)) return slot;
     return -1;
+  }
+
+  private compactStationBins(station: Station) {
+    station.bins
+      .map((id) => this.getStationBin(station, id))
+      .filter((bin): bin is Bin => bin !== undefined)
+      .sort((first, second) => second.slot - first.slot)
+      .forEach((bin, index) => {
+        const nextSlot = 9 - index;
+        if (bin.slot !== nextSlot) {
+          bin.slotTransitionFrom = bin.slot;
+          bin.slotProgress = 0;
+          bin.slot = nextSlot;
+        }
+      });
   }
 }
 
